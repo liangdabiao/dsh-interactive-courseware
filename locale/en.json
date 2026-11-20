@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Courseware Cinema",
+    "description": "Turn a lesson handout into a paged interactive courseware: agent creates via the bundled skill (blueprint -> pages -> player), tools handle mechanical checks, single-file packing and archiving. Sidebar workspace with overview, authoring, archive and live player preview."
+  }
+}
