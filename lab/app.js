@@ -256,7 +256,8 @@ function viewNew(c) {
 
 function buildPrompt(topic) {
   return [
-    '请用 interactive-courseware 技能把下面内容做成一套翻页互动课件：',
+    // 开头这一句是刻意的：新对话里第一眼就能认出是「课件放映厅」发起的，agent 不会当成普通聊天
+    '课件放映厅：请用 interactive-courseware 技能把下面内容做成一套翻页互动课件：',
     '',
     String(topic).trim(),
     '',
@@ -279,10 +280,11 @@ function bindNew() {
     sync(); copy(promptEl.value)
   })
   document.getElementById('f-start')?.addEventListener('click', () => {
-    const prompt = topic.value.trim()
-    if (!prompt) { toast('先写一句话需求'); return }
+    if (!topic.value.trim()) { toast('先写一句话需求'); return }
     sync()
-    start(prompt)
+    // 发完整指令（「课件放映厅：」抬头 + 技能名 + 交付闭环），和「查看将发给 agent 的完整指令」一致；
+    // 只发一句需求的话，新对话里看不出该用哪个插件，也不会按闭环走完 check/pack/save
+    start(promptEl.value)
   })
 }
 

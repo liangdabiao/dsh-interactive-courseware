@@ -1,6 +1,6 @@
 {
   "name": "dsh-interactive-courseware",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "课件放映厅（零 API 密钥 · agent 原生）：把一节课的讲义做成翻页互动课件——agent 按 interactive-courseware 技能三阶段创作（设计蓝图 → 生成页面 → 装进播放器），courseware 工具负责落三段固定代码 / 机械红线盘点 / 打包单文件 课件.html（Node 版 pack.py）/ 课件存证 / 预览服务；侧栏「课件放映厅」看板：概览 / 发起制作 / 课件档案（内置两套真实成品范例）/ 真实播放器翻页预览 / 档案历史 / 制作规范。",
   "license": "MIT",
   "type": "module",

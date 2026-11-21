@@ -26,9 +26,10 @@ const CATALOG = {
 }
 
 const makeEl = (id = '') => ({
-  id, textContent: '', innerHTML: '', value: '', hidden: false, disabled: false, dataset: {},
+  id, textContent: '', innerHTML: '', value: '', hidden: false, disabled: false, dataset: {}, _on: {},
   classList: { add() {}, remove() {}, contains: () => false },
-  addEventListener() {}, removeEventListener() {}, setAttribute() {}, getAttribute: () => null,
+  addEventListener(ev, fn) { this._on[ev] = fn },
+  removeEventListener() {}, setAttribute() {}, getAttribute: () => null,
   querySelectorAll: () => [], focus() {}, setSelectionRange() {},
   contentWindow: { focus() {} },
 })
@@ -38,6 +39,7 @@ function scenario({ hash = '#/', catalog = CATALOG, fail = false } = {}) {
   const els = new Map()
   const getEl = (id) => { if (!els.has(id)) els.set(id, makeEl(id)); return els.get(id) }
   const app = getEl('app')
+  const posted = [] // 面板发给宿主的 postMessage（发起制作）
 
   // 让 bindHistory 能拿到「真绑了 handler」的类型 pill（同一份 DOM 缓存同一批桩）
   let cacheKey = null
@@ -63,7 +65,7 @@ function scenario({ hash = '#/', catalog = CATALOG, fail = false } = {}) {
     confirm: () => false,
     navigator: { clipboard: { writeText() {} } },
     location: { hash, pathname: '/dsh-interactive-courseware/', origin: 'http://127.0.0.1:57916' },
-    parent: { postMessage() {} },
+    parent: { postMessage: (m) => posted.push(m) },
     document: { getElementById: getEl, querySelectorAll: () => [], documentElement: { dataset: {} } },
     addEventListener() {},
     fetch: async () => (fail
@@ -72,7 +74,7 @@ function scenario({ hash = '#/', catalog = CATALOG, fail = false } = {}) {
   }
   vm.createContext(sandbox)
   vm.runInContext(CODE, sandbox, { filename: 'lab/app.js' })
-  return { app, sandbox }
+  return { app, sandbox, getEl, posted }
 }
 
 const tick = () => new Promise((r) => setTimeout(r, 30))
@@ -143,4 +145,21 @@ test('加载失败：给重试按钮，不是一次性死页', async () => {
   await tick()
   assert.match(app.innerHTML, /看板加载失败/)
   assert.match(app.innerHTML, /id="retry"/)
+})
+
+test('发起制作：指令以「课件放映厅：」开头，带上需求与技能名', async () => {
+  const { getEl, posted } = scenario({ hash: '#/new' })
+  await tick()
+
+  const topic = getEl('f-topic')
+  topic.value = '做一节月相成因的互动课，学生能拖动月亮'
+  topic._on.input()
+  assert.match(getEl('f-prompt').value, /^课件放映厅：/, '预览指令也要带抬头')
+
+  getEl('f-start')._on.click()
+  const msg = posted.find((m) => m.type === 'dsh-interactive-courseware:start')
+  assert.ok(msg, '点「发起制作」要把指令 postMessage 给宿主')
+  assert.match(msg.prompt, /^课件放映厅：/, '开头的「课件放映厅：」不能被丢掉')
+  assert.match(msg.prompt, /interactive-courseware/)
+  assert.match(msg.prompt, /月相成因/)
 })
