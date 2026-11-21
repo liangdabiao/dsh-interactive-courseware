@@ -1,6 +1,9 @@
 # dsh-interactive-courseware 课件放映厅
 
 把一节课的讲义交给 agent，还你一套能直接上课的翻页互动课件——**播放器、页面骨架、打包脚本、机械盘点、单文件打包、档案预览**全部内置，零 API 密钥。
+<img width="1737" height="1134" alt="image" src="https://github.com/user-attachments/assets/b6cedb76-700c-4168-af7b-c6e296fc7309" />
+<img width="1797" height="1020" alt="image" src="https://github.com/user-attachments/assets/281a89de-d2ca-4808-aafe-41e50ea6db74" />
+<img width="1653" height="575" alt="image" src="https://github.com/user-attachments/assets/75d3063d-0f25-4335-8a79-25ac2cc30416" />
 
 ```
 你的课件/
