@@ -13,6 +13,7 @@
   --accent: #c2571b;
   --accent-ink: #8f3d12;
   --accent-soft: rgba(194, 87, 27, 0.1);
+  --on-accent: #ffffff;
   --jade: #1f7a68;
   --jade-soft: rgba(31, 122, 104, 0.12);
   --gold: #a9781b;
@@ -37,6 +38,8 @@ html[data-scheme='dark'] {
   --accent: #e8874e;
   --accent-ink: #f0a877;
   --accent-soft: rgba(232, 135, 78, 0.16);
+  /* 暗色下强调色是浅橙/浅绿，按钮文字得用深色才够对比（白字约 2.6:1 不达标） */
+  --on-accent: #16110b;
   --jade: #4fb3a0;
   --jade-soft: rgba(79, 179, 160, 0.16);
   --gold: #d8a83a;
@@ -107,7 +110,7 @@ body::before {
   border-radius: 9px;
   display: grid;
   place-items: center;
-  color: #fff;
+  color: var(--on-accent);
   background: linear-gradient(145deg, var(--accent), color-mix(in srgb, var(--accent) 62%, #4a1d05));
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
   flex: 0 0 auto;
@@ -243,7 +246,7 @@ h2 { font-size: 14px; margin: 0; letter-spacing: 0.3px; }
   border-radius: 9px;
   border: 1px solid var(--accent);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
@@ -312,7 +315,7 @@ label.fld { display: flex; flex-direction: column; gap: 5px; font-size: 11.5px; 
 .badge.bad { color: var(--bad); }
 .badge.gold { color: var(--gold); }
 .badge.grey { color: var(--ink-3); }
-.badge.solid { background: var(--accent); border-color: var(--accent); color: #fff; }
+.badge.solid { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
 .detail-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .detail-head h1 { margin: 0; font-size: 23px; }

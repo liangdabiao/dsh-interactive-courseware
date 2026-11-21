@@ -59,15 +59,15 @@ addEventListener('message', (e) => {
   if (e.origin !== location.origin) return
   const m = e.data
   if (m && m.type === 'dsh-interactive-courseware:scheme' && m.scheme) document.documentElement.dataset.scheme = m.scheme
-  if (m && m.type === 'dsh-interactive-courseware:start-failed') toast('开新对话失败：' + (m.message || ''))
+  if (m && m.type === 'dsh-interactive-courseware:start-failed') toast('开新对话失败：' + (m.message || '') + '；可点「复制指令」手动粘贴到新对话')
 })
 
 function start(prompt) {
   try {
     parent.postMessage({ type: 'dsh-interactive-courseware:start', prompt }, location.origin)
-    toast('已把创作指令填进新对话，确认后发送即可')
+    toast('已把创作指令交给新对话，确认后发送；没看到新对话就点「复制指令」手动粘贴')
   } catch {
-    toast('当前环境开不了新对话，请手动复制指令')
+    toast('当前环境开不了新对话，请点「复制指令」粘贴到新对话')
   }
 }
 
@@ -111,7 +111,10 @@ function badge(ok, okText, badText) {
 
 async function render() {
   const hash = location.hash.replace(/^#\/?/, '') || 'home'
-  const view = hash.split('?')[0]
+  const [view, query = ''] = hash.split('?')
+  // 档案卡片上的「预览」带 ?id=：先把要放的那份记下来，否则永远放列表第一份
+  const wantId = new URLSearchParams(query).get('id')
+  if (wantId) { state.previewId = wantId; state.previewFile = 'index.html' }
   document.querySelectorAll('.nav a[data-view]').forEach((a) =>
     a.setAttribute('aria-current', a.dataset.view === view ? 'true' : 'false'))
   try {
@@ -120,8 +123,12 @@ async function render() {
     app.innerHTML = (views[view] || viewHome)(catalog)
     const binders = { home: bindArchives, new: bindNew, archives: bindArchives, preview: bindPreview, history: bindHistory }
     if (binders[view]) binders[view](catalog, view)
+    bindServeButtons()
   } catch (err) {
-    app.innerHTML = `<div class="empty-box"><b>看板加载失败</b>${esc(err.message || err)}</div>`
+    app.innerHTML = `<div class="empty-box"><b>看板加载失败</b>${esc(err.message || err)}
+      <div style="margin-top:10px"><button class="btn small" id="retry">重试</button>
+      <span class="preview-note">点了没反应就先确认 DSH 还在运行。</span></div></div>`
+    document.getElementById('retry')?.addEventListener('click', () => render())
   }
   navArchives.textContent = state.catalog?.archives?.length || ''
   navHistory.textContent = state.catalog?.history?.length || ''
@@ -129,6 +136,22 @@ async function render() {
   railFoot.innerHTML = s
     ? `<span class="txt">课件档案 ${s.archives} · 页 ${s.pages} · 已打包 ${s.packed} · 历史 ${s.events}</span><span class="txt">v${esc(state.catalog.version || '?')}</span>`
     : ''
+}
+
+// 预览服务的启动按钮：概览页和预览页共用一处实现
+function bindServeButtons() {
+  app.querySelectorAll('[data-serve]').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      btn.disabled = true
+      btn.textContent = '启动中…'
+      try {
+        const out = await post('/api/serve')
+        toast(out.alreadyRunning ? '服务已在运行' : '预览服务已启动')
+      } catch (err) {
+        toast('启动失败：' + (err.message || err))
+      }
+      render()
+    }))
 }
 
 // ---------------------------------------------------------------- 概览
@@ -143,6 +166,10 @@ function viewHome(c) {
       <div class="eyebrow">INTERACTIVE COURSEWARE</div>
       <h1>课件放映厅</h1>
       <p>提需求 → agent 按 interactive-courseware 技能三阶段创作（设计蓝图 → 生成页面 → 装进播放器）→ 机械红线盘点 → 打包单文件 → 存证入档 → 这里翻页预览<b>真实播放器</b>放映的课件。</p>
+      <div class="toolbar" style="margin-top:10px">
+        <a class="btn jade" href="#/new">发起制作 →</a>
+        <a class="btn ghost" href="#/preview">看课件预览</a>
+      </div>
     </div>
 
     <div class="stats">
@@ -155,7 +182,9 @@ function viewHome(c) {
     <div class="sec-head"><h2>环境</h2><span class="sub">预览服务与技能快照</span></div>
     <div class="panel">
       <dl class="kv">
-        <dt>预览服务</dt><dd>${badge(server.up, `运行中 :${server.port}`, '未启动')} <span class="preview-note">预览 = 档案库里的真实课件（完整播放器，可翻页、目录、全屏、静音）</span></dd>
+        <dt>预览服务</dt><dd>${server.up
+          ? badge(true, `运行中 :${server.port}`)
+          : '<span class="badge gold">未启动</span> <button class="btn small" data-serve>启动预览服务</button>'} <span class="preview-note">预览 = 档案库里的真实课件（完整播放器，可翻页、目录、全屏、静音）</span></dd>
         <dt>技能快照</dt><dd>${(c.skills || []).map((k) => `<code>${esc(k.name)}</code>（${k.bodyChars} 字）`).join('　') || '—'}</dd>
         <dt>成品长什么样</dt><dd>插件已内置两套真实范例（阿基米德与浮力 / 勾股定理双证记），在「课件档案」里带示例标，随时预览。</dd>
       </dl>
@@ -280,12 +309,25 @@ function viewArchives(c) {
 
 function bindArchives() {
   const search = document.getElementById('a-search')
-  search?.addEventListener('input', () => { state.q = search.value; render() })
+  // 搜索框每次输入都会重建 DOM，渲染完把焦点和光标放回原位，否则打第二个字就丢焦点
+  search?.addEventListener('input', async () => {
+    state.q = search.value
+    await render()
+    const next = document.getElementById('a-search')
+    if (!next) return
+    next.focus()
+    try { next.setSelectionRange(next.value.length, next.value.length) } catch { /* 不支持就只给焦点 */ }
+  })
   app.querySelectorAll('[data-del]').forEach((btn) =>
     btn.addEventListener('click', async (e) => {
       e.stopPropagation()
       if (!confirm('删除这份课件档案？（可从历史恢复，你工作区里的课件源文件不受影响）')) return
-      await post('/api/archive/remove', { id: btn.dataset.del })
+      try {
+        await post('/api/archive/remove', { id: btn.dataset.del })
+      } catch (err) {
+        toast('删除失败：' + (err.message || err))
+        return
+      }
       toast('已删除')
       render()
     }))
@@ -297,12 +339,12 @@ function bindArchives() {
         const { archive } = await api(`/api/archive?id=${encodeURIComponent(id)}`)
         openViewer(`课件档案 · ${archive.title}`,
           [`标题：${archive.title}（${archive.subject} · ${archive.grade}${archive.sample ? ' · 内置示例' : ''}）`,
-            `DECK：${archive.deckTitle}`,
+            `播放器标题：${archive.deckTitle}`,
             `页面（${archive.pageCount}）：${(archive.pages || []).join('、') || '—'}`,
             `配色：${archive.colors ? `${archive.colors.bg} / ${archive.colors.ink} / ${archive.colors.accent}` : '—'}`,
             `教学目标：${archive.goal || '—'}`,
             `打包：${archive.packed ? `${kb(archive.packBytes)} 单文件（双击即开、断网可用）` : '未打包单文件'}`,
-            `机械盘点：${archive.checkWarns ? `${archive.checkWarns} 条警告` : '干净'}`,
+            `检查结果：${archive.checkWarns ? `${archive.checkWarns} 条提醒` : '干净'}`,
             `备注：${archive.note || '—'}`,
             `存档文件：${(archive.files || []).join(', ') || '—'}`,
           ].join('\n'))
@@ -330,14 +372,16 @@ function viewPreview(c) {
         `<option value="${esc(a.id)}" ${current?.id === a.id ? 'selected' : ''}>${esc(a.title)}（${a.pageCount} 页）</option>`).join('') || '<option>（暂无课件）</option>'}</select>
       <button class="pill" id="p-file" aria-pressed="${state.previewFile === 'packed'}" ${current?.packed ? '' : 'disabled'} title="切换单文件版（全部页面内嵌进一个 HTML）">单文件版</button>
       <span class="grow"></span>
-      ${badge(server.up, `服务 :${server.port}`, '服务未启动')}
-      <button class="btn small" id="p-serve" ${server.up ? 'disabled' : ''}>${server.up ? '服务运行中' : '启动预览服务'}</button>
-      <a class="btn small ghost" href="${esc(url)}" target="_blank" rel="noreferrer">新窗口打开</a>
+      ${server.up ? badge(true, `服务 :${server.port}`) : '<span class="badge gold">服务未启动</span>'}
+      <button class="btn small" data-serve ${server.up ? 'disabled' : ''}>${server.up ? '服务运行中' : '启动预览服务'}</button>
+      ${server.up && current
+        ? `<a class="btn small ghost" href="${esc(url)}" target="_blank" rel="noreferrer">新窗口打开</a>`
+        : '<button class="btn small ghost" disabled title="先启动预览服务">新窗口打开</button>'}
     </div>
     ${current ? `
       ${server.up
         ? `<div class="preview-stage"><iframe class="preview-frame" id="p-frame" src="${esc(url)}" title="课件预览" allow="fullscreen; autoplay"></iframe></div>
-           <div class="preview-note" style="margin-top:8px">${esc(url)}　｜　翻页：← → 方向键 / 点底栏箭头；目录：点页码或按 g；全屏：f；静音：m</div>`
+           <div class="preview-note" style="margin-top:8px">${esc(url)}　｜　先点一下预览区再按快捷键：翻页 ← →（或点底栏箭头）；目录 g；全屏 f；静音 m</div>`
         : `<div class="empty-box"><b>预览服务没在跑</b>点上面的「启动预览服务」（秒级启动），起来后这里会自动加载课件。</div>`}
     ` : `<div class="empty-box"><b>还没有可预览的课件</b>agent 交付并 courseware save 存证后，这里会出现预览。</div>`}
   </div>`
@@ -351,28 +395,28 @@ function bindPreview() {
     e.currentTarget.setAttribute('aria-pressed', String(state.previewFile === 'packed'))
     render()
   })
-  document.getElementById('p-serve')?.addEventListener('click', async (e) => {
-    e.target.disabled = true
-    e.target.textContent = '启动中…'
-    try {
-      const out = await post('/api/serve')
-      toast(out.alreadyRunning ? '服务已在运行' : '预览服务已启动')
-    } catch (err) { toast('启动失败：' + (err.message || err)) }
-    render()
-  })
+  // 预览在另一个端口（跨域 iframe），翻页快捷键只在 iframe 拿到焦点后才生效
+  const frame = document.getElementById('p-frame')
+  if (frame) {
+    const focusFrame = () => { try { frame.contentWindow?.focus() } catch { /* 跨域拿不到就靠用户点 */ } }
+    frame.addEventListener('load', focusFrame)
+    focusFrame()
+  }
 }
 
 // ---------------------------------------------------------------- 档案历史
 
 function viewHistory(c) {
   const kinds = ['all', 'create', 'update', 'delete', 'restore']
-  const list = c.history || []
+  // 类型筛选在前端做：catalog 一次带回最近 60 条，点 pill 立刻生效（不用再打一次接口）
+  const all = c.history || []
+  const list = state.kind === 'all' ? all : all.filter((e) => e.kind === state.kind)
   return `
   <div class="wrap">
     <div class="head">
       <div class="eyebrow">HISTORY</div>
       <h1>档案历史</h1>
-      <p>保存 / 更新 / 删除 / 恢复都留痕；删除的档案带完整快照，可一键恢复。</p>
+      <p>存证 / 更新 / 删除 / 恢复都会留痕（每次存证是一版）；删掉的档案带完整快照，可一键恢复。</p>
     </div>
     <div class="toolbar">
       ${kinds.map((k) => `<button class="pill" data-kind="${k}" aria-pressed="${state.kind === k}">${k === 'all' ? '全部' : kindLabel(k)}</button>`).join('')}
@@ -386,7 +430,7 @@ function viewHistory(c) {
         <span class="what"><b>${esc(e.title || e.archiveId)}</b><div>${esc(e.summary || '')}</div></span>
         ${e.kind === 'delete' ? '<button class="btn small ghost" data-restore="' + esc(e.id) + '">恢复</button>' : ''}
       </div>`).join('')
-      : `<div class="empty-box"><b>还没有历史记录</b>save / delete 之后这里会留痕。</div>`}
+      : `<div class="empty-box"><b>${state.kind === 'all' ? '还没有历史记录' : `没有「${kindLabel(state.kind)}」记录`}</b>${state.kind === 'all' ? '存证 / 删除之后这里会留痕。' : '切到「全部」看看其他类型的记录。'}</div>`}
   </div>`
 }
 
@@ -395,7 +439,12 @@ function bindHistory() {
     pill.addEventListener('click', () => { state.kind = pill.dataset.kind; render() }))
   document.getElementById('h-clear')?.addEventListener('click', async () => {
     if (!confirm('清空全部历史？（不影响课件档案）')) return
-    await post('/api/history/clear')
+    try {
+      await post('/api/history/clear')
+    } catch (err) {
+      toast('清空失败：' + (err.message || err))
+      return
+    }
     toast('已清空')
     render()
   })

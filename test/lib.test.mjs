@@ -2,7 +2,7 @@
 // 运行：node test/lib.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -455,9 +455,80 @@ test('startServer：端口被别人占用时如实报错不抢', async () => {
   await stopServer()
 })
 
+test('startServer：端口上已是本插件的服务（旧实例/多窗口）时认领，不报占用', async () => {
+  const http = await import('node:http')
+  const port = 5178
+  const first = listArchives()[0]
+  assert.ok(first, '需要档案库里至少有一份课件')
+  const size = statSync(join(DECKS_DIR, first.id, 'index.html')).size
+  // 模拟「另一个本插件实例」：只对这份课件的 index.html 回 HEAD + 对得上的 content-length
+  const twin = http.createServer((req, res) => {
+    if (req.method === 'HEAD' && req.url === `/${first.id}/index.html`) {
+      res.writeHead(200, { 'content-length': size })
+      return res.end()
+    }
+    res.writeHead(404)
+    res.end('not found')
+  }).listen(port, '127.0.0.1')
+  await new Promise((r) => setTimeout(r, 120))
+  const out = await startServer(port)
+  assert.equal(out.ok, true)
+  assert.equal(out.alreadyRunning, true)
+  assert.equal(out.adopted, true)
+  twin.close()
+  await stopServer()
+})
+
+test('startServer：端口上是别人的 200（不是我们的档案）仍如实报占用', async () => {
+  const http = await import('node:http')
+  const port = 5177
+  // 什么路径都回 200 但 content-length 对不上课件指纹 —— 不能认领
+  const stranger = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-length': 7, 'content-type': 'text/html; charset=utf-8' })
+    res.end(req.method === 'HEAD' ? undefined : 'hello!!')
+  }).listen(port, '127.0.0.1')
+  await new Promise((r) => setTimeout(r, 120))
+  const out = await startServer(port)
+  assert.equal(out.ok, false)
+  assert.match(out.error, /占用/)
+  stranger.close()
+  await stopServer()
+})
+
 // ---------------------------------------------------------------- 冒烟：数据文件落盘
 
 test('存证 JSON 真实落盘（archives.json 可读回）', () => {
   const raw = JSON.parse(readFileSync(join(DATA_DIR, 'archives.json'), 'utf8'))
   assert.ok(Array.isArray(raw) && raw.length >= 3)
+})
+
+// ---------------------------------------------------------------- 生命周期：插件禁用/重载要还端口
+
+test('apply 注册了预览服务的 dispose：插件禁用/重载会释放端口', async () => {
+  const { apply, configRef } = await import('../src/host.js')
+  const port = 5176
+  const noop = { dispose() {} }
+  const effects = []
+  const ctx = {
+    effect(fn, label) { effects.push({ label: String(label), result: fn() }); return noop },
+    tools: { register: () => noop },
+    skills: { registerProvider: () => noop },
+    webServer: { register: () => noop },
+    get: () => undefined,
+  }
+  apply(ctx, { previewPort: port })
+
+  const entry = effects.find((e) => e.label.includes('preview server'))
+  assert.ok(entry, '要注册 preview server 的 effect（否则重载后端口一直占着）')
+  assert.equal(typeof entry.result, 'function', 'effect 要返回 disposer 函数')
+
+  const started = await startServer(port)
+  assert.equal(started.ok, true, `预览服务应能起来：${started.error || ''}`)
+  assert.equal((await serverHealth(port)).up, true)
+
+  await entry.result() // 宿主在插件卸载时调它
+  assert.equal((await serverHealth(port)).up, false, 'disposer 调用后端口应释放')
+
+  configRef.config = null
+  await stopServer()
 })

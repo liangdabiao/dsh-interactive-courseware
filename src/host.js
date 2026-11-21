@@ -8,14 +8,14 @@ import Schema from '@deepseek-ai/schemastery'
 import { registerApi } from '../lib/api.js'
 import { createSkillProvider } from '../lib/skills.js'
 import {
-  archiveSummary, archiveDirFor, copyDeckSource, deleteArchive, getArchive,
+  archiveSummary, archiveDirFor, copyDeckSource, deleteArchive, findArchiveByOrigin, getArchive,
   KIND_LABEL, listArchiveHistory, listArchives, newArchiveId, restoreFromHistory,
   saveArchive, seedSamples,
 } from '../lib/archive.js'
 import { inspectDeck } from '../lib/deck.js'
 import { packDeck } from '../lib/pack.js'
 import { scaffoldDeck } from '../lib/scaffold.js'
-import { previewUrl, startServer } from '../lib/serve.js'
+import { previewUrl, startServer, stopServer } from '../lib/serve.js'
 
 const PLUGIN_VERSION = (() => {
   try { return JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version } catch { return '?' }
@@ -96,7 +96,7 @@ export const coursewareTool = {
       grade: str('save：学段（小学/初中/高中/大学/通识）'),
       goal: str('save：教学目标一句话（面板档案卡片显示）'),
       note: str('save：这一版做了什么（写进历史，方便回看）；history：关键词'),
-      id: str('serve-id/get-archive/delete：档案 id（archive 里能看到）'),
+      id: str('save：要覆盖更新的档案 id（不传则按工作目录自动认定是同一份课件的下一版）；serve/get-archive/delete：档案 id（archive 里能看到）'),
       file: str('serve：要预览的文件（默认 index.html 完整播放器；可传 课件.html 看单文件版）'),
       confirm: str('delete 必须传 "yes"', { enum: ['yes'] }),
       kind: str('history：只看某一类事件', { enum: ['all', 'create', 'update', 'delete', 'restore'] }),
@@ -132,9 +132,10 @@ export const coursewareTool = {
       if (r.packed.exists) lines.push(`课件.html：已打包（${(r.packed.bytes / 1024).toFixed(0)} KB）${r.warns.some((w) => w.includes('课件.html 比页面')) ? '——已过期，重新 pack' : ''}`)
       else if (r.ok) lines.push('课件.html：还没打包（pack 一次）')
       if (!r.ok) return result(false, `机械盘点没过：${r.errors.length} 个硬错误。`, lines.join('\n'))
+      const packedUpToDate = r.packed.exists && !r.warns.some((w) => w.includes('课件.html 比页面'))
       return result(true,
         `机械盘点通过（${r.warns.length} 条警告${r.warns.length ? '，warn 不阻塞但建议按 skill 自查清单修' : '，零警告'}）。` +
-        `接下来：${r.packed.exists && !r.warns.some((w) => w.includes('课件.html 比页面')) ? '直接 save 存证' : 'pack 打包'} → save → serve，告知用户去面板预览。`,
+        `接下来：${packedUpToDate ? '直接 save 存证' : 'pack 打包再 save 存证'} → serve 启动预览，告知用户去面板预览。`,
         lines.join('\n'))
     }
 
@@ -153,11 +154,14 @@ export const coursewareTool = {
       if (!existsSync(args.dir)) return result(false, `目录不存在：${args.dir}`)
       const r = inspectDeck(args.dir)
       if (!r.ok || !r.deck) return result(false, `存不了：课件机械盘点没过（${r.errors.join('；')}）。先修硬错误。`)
-      const id = newArchiveId()
+      // 同一个课件目录再存 = 改一版：复用已有档案（否则每存一次列表里就多一条同名课件）
+      const previous = (args.id && getArchive(args.id)) || findArchiveByOrigin(args.dir)
+      const id = previous ? previous.id : newArchiveId()
       const destDir = archiveDirFor(id)
       const { files } = copyDeckSource(args.dir, destDir)
       const { archive: a, created } = saveArchive({
         id,
+        originDir: args.dir,
         title: args.title || r.deck.title || '未命名课件',
         deckTitle: r.deck.title,
         subject: args.subject,
@@ -247,6 +251,8 @@ export function apply(ctx, config) {
 
   ctx.effect(() => ctx.tools.register(coursewareTool), `${name}: tool courseware`)
   ctx.effect(() => ctx.skills.registerProvider(() => createSkillProvider(skillDirs)), `${name}: skills`)
+  // 插件重载 / 禁用时把预览端口还回去，否则旧监听会一直占着 5100（新实例再起来就抢不到）
+  ctx.effect(() => () => { stopServer().catch(() => {}) }, `${name}: preview server`)
   configRef.seedPromise = seedSamples(examplesDir).catch(() => {})
   ctx.effect(() => registerApi(ctx, { configRef }), `${name}: routes`)
 }

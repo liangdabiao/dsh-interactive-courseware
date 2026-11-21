@@ -1,6 +1,7 @@
 // 课件放映厅 · E2E 冒烟：courseware 工具全动作跑通（沙盒 DSH_HOME + 沙盒课件目录）。
-// 用法：node scripts/smoke.mjs [--port <端口>]
+// 用法：node scripts/smoke.mjs [--port <端口>]（不给端口就自动挑一个空闲端口，避开正在运行的插件实例）
 import { cpSync, existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -10,7 +11,15 @@ const argOf = (name, fallback) => {
   const i = process.argv.indexOf(name)
   return i > -1 ? process.argv[i + 1] : fallback
 }
-const PORT = Number(argOf('--port', 5100))
+const freePort = () => new Promise((resolve, reject) => {
+  const probe = createServer()
+  probe.once('error', reject)
+  probe.listen(0, '127.0.0.1', () => {
+    const { port } = probe.address()
+    probe.close(() => resolve(port))
+  })
+})
+const PORT = Number(argOf('--port', 0)) || (await freePort())
 const PLUGIN_ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const EXAMPLE = join(PLUGIN_ROOT, 'skills', 'interactive-courseware', 'examples', 'archimedes-buoyancy')
 
@@ -20,8 +29,9 @@ cpSync(EXAMPLE, WORK, { recursive: true })
 // 把 课件.html 挪走，模拟「还没打包」的状态，让 pack 动作有活干
 rmSync(join(WORK, '课件.html'), { force: true })
 
-const configRef = { config: { previewPort: PORT } }
-const { coursewareTool } = await import('../src/host.js')
+const { coursewareTool, configRef } = await import('../src/host.js')
+// 端口必须写回 host.js 自己的 configRef（工具里 cfg() 读的是它），否则 --port 是空话
+configRef.config = { previewPort: PORT }
 // 与真实宿主 apply() 同款：先把内置示例种入档案库
 const { seedSamples } = await import('../lib/archive.js')
 await seedSamples(join(PLUGIN_ROOT, 'skills', 'interactive-courseware', 'examples'))

@@ -54,8 +54,8 @@ dsh plugin --profile web add https://github.com/liangdabiao/dsh-interactive-cour
 ```bash
 npm install
 npm run build     # 面板 bundle → dist/client.js
-npm test          # lib 层单测（33 项，沙盒）
-npm run smoke     # E2E 冒烟（全动作 + 真实示例 + 预览服务可达性）
+npm test          # lib 层单测（33 项）+ 面板前端回归（7 项，vm + DOM 桩，沙盒）
+npm run smoke     # E2E 冒烟（全动作 + 真实示例 + 预览服务可达性；自动挑空闲端口，插件正在跑也能测）
 npm run panel     # 面板开发预览 http://127.0.0.1:8899/dsh-interactive-courseware/
 ```
 
